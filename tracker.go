@@ -2,11 +2,12 @@ package provenance
 
 // tracker.go contains the sqliteTracker implementation of the Tracker interface.
 //
-// Architecture: Types live in pkg/ptypes (no bestiary-catalog dependencies; leaf-package
-// layering to avoid cyclic imports). The SQL persistence
-// layer lives in internal/sqlite. The graph store adapter lives in
-// internal/graph. Graph traversal helpers live in internal/helpers.
-// This root package imports all of them and wires them together.
+// Architecture: Types live in pkg/ptypes. As of v0.0.x post-FIX-V2-4, pkg/ptypes
+// imports bestiary for Provider.IsValid() catalog validation. No cyclic import risk:
+// bestiary does not import provenance or pkg/ptypes. The SQL persistence layer lives
+// in internal/sqlite. The graph store adapter lives in internal/graph. Graph traversal
+// helpers live in internal/helpers. This root package imports all of them and wires
+// them together.
 
 import (
 	"fmt"

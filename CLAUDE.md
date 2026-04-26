@@ -27,7 +27,7 @@ provenance/
 ├── create_permutation_test.go
 │
 ├── pkg/
-│   ├── ptypes/             # Zero-dependency public type package
+│   ├── ptypes/             # Public type package (imports bestiary for IsValid catalog check)
 │   │   ├── types.go        # TaskID, AgentID, ActivityID, Task, Agent (TPT), Edge, etc.
 │   │   ├── enums.go        # All enums: Status, Priority, TaskType, EdgeKind, AgentKind,
 │   │   │                   #   Provider (string), Role, Phase, Stage
@@ -87,7 +87,7 @@ provenance/
 | Package | Role |
 |---------|------|
 | `provenance` (root) | **Public API surface**. Consumers (e.g., pasture) import only this package. Holds the `Tracker` interface, constructors (`OpenSQLite`, `OpenMemory`), the `sqliteTracker` implementation, and the bestiary adapter. Re-exports every `pkg/ptypes` and `pkg/namespace` symbol via type aliases (`reexports.go`) so consumers see `provenance.TaskID` rather than `ptypes.TaskID`. |
-| `pkg/ptypes` | **Zero-dependency type definitions**. Holds every public type, enum, and sentinel error. Imports nothing outside stdlib (no bestiary, no zombiezen). This is what allows `internal/sqlite` to import the types without creating an import cycle through the root package. Consumers should not import this directly — use the root re-exports. |
+| `pkg/ptypes` | **Public type definitions and bestiary delegation**. Holds every public type, enum, and sentinel error. Imports bestiary for `Provider.IsValid()` catalog validation; does not import SQLite or zombiezen. This is what allows `internal/sqlite` to import the types without creating an import cycle through the root package. Consumers should not import this directly — use the root re-exports. |
 | `pkg/namespace` | Namespace URI derivation (git remote → canonical HTTPS, working dir → `file://`). Used to scope IDs. Re-exported by root. |
 | `internal/sqlite` | **All SQL operations**. Encapsulates the zombiezen SQLite driver. No graph logic — pure relational CRUD including agent table-per-type operations and ml_models seeding from the registry. |
 | `internal/graph` | Implements `dominikbraun/graph.Store[string, Task]` backed by `internal/sqlite`. Bridges graph library and persistence. |
@@ -99,7 +99,7 @@ provenance/
 
 The root package implements `sqliteTracker`, which delegates to `internal/sqlite`. `internal/sqlite` needs the type definitions (`Task`, `TaskID`, `MLAgent`, …) to write SQL against. If those types lived at the root, you'd have an import cycle: `root → internal/sqlite → root`.
 
-The split solves it: `pkg/ptypes` holds type definitions only (zero deps), `internal/sqlite` imports `ptypes`, and the root re-exports every `ptypes` symbol via Go type aliases (`type TaskID = ptypes.TaskID`). The aliases are transparent at compile time — `provenance.TaskID` and `ptypes.TaskID` are the *same* type — so consumers get a clean import surface (`provenance.TaskID`) without ever seeing the internal split.
+The split solves it: `pkg/ptypes` holds type definitions (importing only bestiary for `Provider.IsValid()` catalog validation), `internal/sqlite` imports `ptypes`, and the root re-exports every `ptypes` symbol via Go type aliases (`type TaskID = ptypes.TaskID`). The aliases are transparent at compile time — `provenance.TaskID` and `ptypes.TaskID` are the *same* type — so consumers get a clean import surface (`provenance.TaskID`) without ever seeing the internal split. Critically, bestiary does not import provenance or `pkg/ptypes`, so there is no cyclic import risk from `ptypes → bestiary`.
 
 ## Dependencies (Approved)
 
@@ -107,7 +107,7 @@ Direct dependencies pinned in `go.mod`:
 
 | Package | Purpose | Version |
 |---------|---------|---------|
-| `github.com/dayvidpham/bestiary` | ML model catalog (single source of truth for `DefaultModelRegistry`) | v0.1.0 |
+| `github.com/dayvidpham/bestiary` | ML model catalog (single source of truth for `DefaultModelRegistry`) | v0.0.2 |
 | `github.com/dominikbraun/graph` | Directed graph operations, topological sort, cycle detection | v0.23.0 |
 | `github.com/google/uuid` | UUIDv7 generation for IDs | v1.6.0 |
 | `gopkg.in/yaml.v3` | YAML parsing (used by namespace and frontmatter helpers) | v3.0.1 |
@@ -137,7 +137,7 @@ const (
 )
 ```
 
-Use a `string` underlying type when the enum needs to interop with an external string-typed contract (e.g., `Provider` mirrors `bestiary.Provider`). The required methods still apply, and `IsValid()`/`UnmarshalText()` should be **case-insensitive** for string enums:
+Use a `string` underlying type when the enum needs to interop with an external string-typed contract (e.g., `Provider` mirrors `bestiary.Provider`). The required methods still apply. For most string enums, `IsValid()` and `UnmarshalText()` should be **case-insensitive**. The exception is `Provider`: `IsValid()` is **case-sensitive** because it delegates to `bestiary.Provider(p).IsKnown()`, a case-sensitive catalog match against upstream models.dev provider names. `UnmarshalText()` for `Provider` applies normalization (trim whitespace, lowercase) before delegating the trimmed string to the case-sensitive check.
 
 ```go
 type Provider string
